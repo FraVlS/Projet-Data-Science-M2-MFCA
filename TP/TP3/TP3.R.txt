@@ -1,0 +1,52 @@
+rm(list=ls())
+setwd("/Users/obouaziz/Seafile/Enseignement/Lille/ISN_Methode_App/2024-2025/TP4")
+
+#1
+Heart <- read.table("heart_cleveland.csv",header=TRUE,sep=",")
+dim(Heart)
+n <- dim(Heart)[1]
+
+new_id <- sample(1:n)
+n_train <- abs(n*0.8)
+n_test <- n-n_train
+data_train <- Heart[new_id[1:n_train],]
+data_test <- Heart[new_id[(n_train+1):n],]
+
+mean(Heart$condition)
+mean(data_train$condition)
+mean(data_test$condition)
+
+#2 & 3
+model_all <- glm(condition ~ .,data=data_train,family = "binomial")
+summary(model_all)
+
+
+exp(model_all$coefficients)
+
+
+require(broom)
+model_tidy <- tidy(model_all,conf.int = TRUE,exponentiate = TRUE)
+
+require(ggplot2)
+
+ggplot(model_tidy[-1,], aes(estimate, term, color = term)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high))
+
+pred_all <- predict(model_all,newdata = data_test[,-11],type = "response")
+mean((pred_all>=0.5)!=(data_test[,11])) 
+
+step(model_all)
+#step(model_all,k=log(n)) #pour faire une selection avec le critere BIC
+
+#Selectionner les colonnes obtenus apres selection de variable avec critere
+#AIC ou BIC (attention, les colonnes selectionnees peuvent varier en fonction
+#de l'echantillon d'apprentissage)
+data_train_step <- data_train[,c(2,4,6,7,8,9,10,11)]
+data_test_step <- data_test[,c(2,4,6,7,8,9,10,11)]
+
+model_step <- glm(condition ~ .,data=data_train_step,family = "binomial")
+summary(model_step)
+
+pred_step <- predict(model_step,newdata = data_test_step[,-8],type = "response")
+mean((pred_step>=0.5)!=(data_test_step[,8])) 

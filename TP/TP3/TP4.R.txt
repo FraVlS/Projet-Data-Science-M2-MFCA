@@ -1,0 +1,76 @@
+rm(list=ls())
+setwd("/Users/obouaziz/Seafile/Enseignement/Lille/ISN_Methode_App/2024-2025/TP3")
+
+#1
+TeleX <- read.table("Telecom_x.csv",header=TRUE,sep=",")
+TeleY <- read.table("Telecom_y.csv",header=TRUE,sep=",")
+Tele <- cbind(TeleX[,-1],TeleY[,-1])
+dim(Tele)
+n <- dim(Tele)[1]
+colnames(Tele)[dim(Tele)[2]] <- c("Y")
+
+new_id <- sample(1:n)
+n_train <- abs(n*0.8)
+n_test <- n-n_train
+data_train <- Tele[new_id[1:n_train],]
+data_test <- Tele[new_id[(n_train+1):n],]
+
+mean(Tele$Y)
+mean(data_train$Y)
+mean(data_test$Y)
+
+model_all_0 <- glm(Y ~ .,data=Tele,family = "binomial")
+summary(model_all_0)
+
+#2 & 3
+model_all <- glm(Y ~ .,data=data_train,family = "binomial")
+summary(model_all)
+#significant variables:
+#VMail.Message, Intl.Calls, CustServ.Calls
+
+data_trainbis <- data.frame(scale(data_train[,-15]),Y=data_train$Y)
+model_allbis <- glm(Y ~ .,data=data_trainbis,family = "binomial")
+summary(model_allbis)
+
+exp(model_all$coefficients)
+#VMail.Message: OR = 0.9758823
+#Intl.Calls: OR = 0.9419586
+#CustServ.Calls: OR = 1.566842
+
+require(broom)
+model_tidy <- tidy(model_all,conf.int = TRUE,exponentiate = TRUE)
+
+require(ggplot2)
+
+ggplot(model_tidy, aes(estimate, term, color = term)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high))
+#Probleme avec Intl.Charge qui est tres mal estime
+#Difficulte avec l'inversion de la matrice Hessienne
+
+
+data_train10 <- data_train[,-c(4,7,10,13)]
+data_test10 <- data_test[,-c(4,7,10,13)]
+model_10 <- glm(Y ~ .,data=data_train10,family = "binomial")
+summary(model_10)
+#significant variables:
+#VMail.Message: OR = 0.9759484002
+#Day.Mins: OR = 1.0125927867
+#Eve.Mins: OR = 1.0076231057 
+#Intl.Mins: OR = 1.0944257408
+#Intl.Calls: OR = 0.9425869327
+#CustServ.Calls: OR = 1.5666620738
+model10_tidy <- tidy(model_10,conf.int = TRUE,exponentiate = TRUE)
+ggplot(model10_tidy, aes(estimate, term, color = term)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high))
+
+#4
+#on peut utiliser model_all ou model_10 pour faire de la classification
+#? predict.glm
+pred_all <- predict(model_all,newdata = data_test[,-dim(Tele)[2]],type = "response")
+pred10 <- predict(model_10,newdata = data_test10[,-11],type = "response")
+
+mean((pred_all>=0.5)!=(data_test[,dim(Tele)[2]])) #0.1306306
+mean((pred10>=0.5)!=(data_test10[,11])) #0.1306306
+
