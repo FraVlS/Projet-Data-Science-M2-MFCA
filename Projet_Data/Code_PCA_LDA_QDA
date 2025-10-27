@@ -138,6 +138,43 @@ plt.show()
 
 #LDA et QDA
 
-
+lda = LinearDiscriminantAnalysis()
+lda.fit(data_sans_id.drop('Diagnostique', axis = 1), data_sans_id.Diagnostique)
 
 #Analyse et comparaison des modèles
+y = data_sans_id["Diagnostique"]
+X = data_sans_id.drop("Diagnostique",axis=1)
+X_sd = StandardScaler().fit_transform(X)
+X_train, X_test, y_train, y_test = train_test_split(
+    X_sd, y, test_size=0.3, random_state=42, stratify=y
+)
+
+# Fonction pour évaluer les modèles, framework robuste selon le modele utilisé
+def evaluation_model(model, X_train, X_test, y_train, y_test):
+    y_train_pred = model.predict(X_train)
+    y_test_pred = model.predict(X_test)
+    train_score = accuracy_score(y_train, y_train_pred)
+    test_score = accuracy_score(y_test, y_test_pred)
+
+    conf_matrix = confusion_matrix(y_test, y_test_pred) # Matrice de confusion
+    
+    print(conf_matrix)
+    
+    print(classification_report(y_test, y_test_pred, target_names=['Benign', 'Malignant']))
+    
+    return {'train_score': train_score,'test_score': test_score,'confusion_matrix': conf_matrix,'model': model} #Valeurs dans le dictionnaire
+
+results = {} # Pour relier les résultats à un modèle choisi.
+
+lda = LinearDiscriminantAnalysis(solver='svd')
+lda.fit(X_train, y_train)
+
+results['LDA'] = evaluation_model(lda, X_train, X_test, y_train, y_test)
+
+
+qda = QuadraticDiscriminantAnalysis()
+qda.fit(X_train, y_train)
+
+results['QDA'] = evaluation_model(qda,X_train, X_test, y_train, y_test)
+
+print(results)
