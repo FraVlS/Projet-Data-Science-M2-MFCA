@@ -145,12 +145,10 @@ lda.fit(data_sans_id.drop('Diagnostique', axis = 1), data_sans_id.Diagnostique)
 y = data_sans_id["Diagnostique"]
 X = data_sans_id.drop("Diagnostique",axis=1)
 X_sd = StandardScaler().fit_transform(X)
-X_train, X_test, y_train, y_test = train_test_split(
-    X_sd, y, test_size=0.3, random_state=42, stratify=y
-)
+X_train, X_test, y_train, y_test = train_test_split(X_sd, y, test_size=0.3, random_state=42, stratify=y) #stratify par y pour garder environ 37% de positifs (https://stackoverflow.com/questions/34842405/parameter-stratify-from-method-train-test-split-scikit-learn)
 
 # Fonction pour évaluer les modèles, framework robuste selon le modele utilisé
-def evaluation_model(model, X_train, X_test, y_train, y_test):
+def evaluation_modele(model, X_train, X_test, y_train, y_test):
     y_train_pred = model.predict(X_train)
     y_test_pred = model.predict(X_test)
     train_score = accuracy_score(y_train, y_train_pred)
@@ -166,15 +164,73 @@ def evaluation_model(model, X_train, X_test, y_train, y_test):
 
 results = {} # Pour relier les résultats à un modèle choisi.
 
+
+#LDA
+
 lda = LinearDiscriminantAnalysis(solver='svd')
 lda.fit(X_train, y_train)
+results['LDA'] = evaluation_modele(lda, X_train, X_test, y_train, y_test)
 
-results['LDA'] = evaluation_model(lda, X_train, X_test, y_train, y_test)
 
+#QDA
 
 qda = QuadraticDiscriminantAnalysis()
 qda.fit(X_train, y_train)
+results['QDA'] = evaluation_modele(qda,X_train, X_test, y_train, y_test)
 
-results['QDA'] = evaluation_model(qda,X_train, X_test, y_train, y_test)
+#Logistique
+from sklearn.linear_model import LogisticRegression
 
-print(results)
+logit = LogisticRegression(max_iter=2000, random_state=42)
+logit.fit(X_train, y_train)
+results['Logistic Regression'] = evaluation_modele(
+    logit, X_train, X_test, y_train, y_test
+)
+
+#KNN
+from sklearn.neighbors import KNeighborsClassifier
+
+param_grid_knn = {'n_neighbors': [3, 5, 7, 9, 11, 13, 15, 20, 25]}
+knn_base = KNeighborsClassifier()
+knn_grid = GridSearchCV(knn_base, param_grid_knn, cv=5, scoring='accuracy', n_jobs=-1, verbose=1)
+knn_grid.fit(X_train, y_train)
+print("Meilleur k: "+ str(knn_grid.best_params_['n_neighbors']))
+print("Score validation croisée: " + str(knn_grid.best_score_))
+results['KNN'] = evaluation_modele(knn_grid.best_estimator_,X_train, X_test, y_train, y_test)
+
+#RFC
+from sklearn.ensemble import RandomForestClassifier
+
+param_grid_rf = {'n_estimators': [50, 100, 200],'max_depth': [5, 10, 15, None],'min_samples_split': [2, 5, 10]}
+rf_base = RandomForestClassifier(random_state=42)
+rf_grid = GridSearchCV(rf_base, param_grid_rf, cv=5, scoring='accuracy',n_jobs=-1, verbose=1)
+rf_grid.fit(X_train, y_train)
+print("Meilleur k: "+ str(rf_grid.best_params_))
+print("Score validation croisée: " + str(rf_grid.best_score_))
+results['Random Forest'] = evaluation_modele(rf_grid.best_estimator_, X_train, X_test, y_train, y_test)
+
+#Comparaison : 
+
+# Courbes ROC
+
+plt.figure(figsize=(8, 6))
+plt.plot([0, 1], [0, 1], color="k",label='Classifieur 50/50 (indépendant des données)')
+
+for name, res in results.items():
+    model = res['model']
+    y_pred = model.predict_proba(X_test)[:, 1]
+    faux_pos, vrai_pos, thresholds = roc_curve(y_test, y_pred)
+    plt.plot(faux_pos, vrai_pos, label = name + " (AUC=" + str(np.round(roc_auc_score(y_test, y_pred), 3)) + ")")
+
+plt.title("Courbes ROC")
+plt.xlabel("Taux de Faux Positifs")
+plt.ylabel("Taux de Vrais Positifs")
+plt.legend()
+plt.show()
+
+# AUC 
+print("AUC par algorithme : ")
+for name, res in results.items():
+    model = res['model']
+    y_pred = model.predict_proba(X_test)[:, 1]
+    print(name +"    "+ str(roc_auc_score(y_test, y_pred)))
