@@ -63,9 +63,9 @@ plt.show()
 
 #Réduction de dimensions (Inspiration TD1)
 
-X = data_sans_id
+y = data_sans_id["Diagnostique"]
+X = data_sans_id.drop("Diagnostique", axis=1)
 X_sd = StandardScaler().fit_transform(X)
-
 pca = PCA()
 pca.fit(X_sd)
 
@@ -76,18 +76,41 @@ print(pca.explained_variance_)
 pca.explained_variance_ / pca.explained_variance_.sum()
 (pca.explained_variance_ / pca.explained_variance_.sum()).cumsum()
 
+#Plot de la variance expliquée vs le nombre d'axes PCA.
 plt.plot(pca.explained_variance_  / pca.explained_variance_.sum())
 plt.axhline(1 / X_sd.shape[1], color='k',label="V ariance moyenne théorique 1/p ="+str(np.round((1 / X_sd.shape[1]),decimals=2)))
 plt.title("Part de n axe à l'explication de la variance")
 plt.legend()
+plt.savefig('Part de n axe à l explication de la variance.png')
 plt.show()
 
 nb_dim_opti = np.argmax(np.cumsum(pca.explained_variance_ratio_) >= 0.9) + 1
 plt.plot(np.cumsum(pca.explained_variance_ratio_))
 plt.axvline(nb_dim_opti, color='r',label="Nombre d'axe optimal pour expliquer 90% de la variance (="+str(nb_dim_opti)+")")
 plt.title("Part de variance expliquée par n axes")
-plt.legend()
+plt.savefig('Part de variance expliquée par n axes')
 plt.show()
+
+
+
+# On va maintenant projeter les patients sur les axes PC1 et PC2 afin de voir à quel point ces deux axes séparent les données
+X_pca = pca.transform(X_sd)
+
+# Créations de masques pour le scatter
+mask_malignant = (y == 1)
+mask_benign = (y == 0)
+
+plt.figure(figsize=(8, 6))
+plt.scatter(X_pca[mask_benign, 0], X_pca[mask_benign, 1],color='green', alpha=0.5, label='B')
+plt.scatter(X_pca[mask_malignant, 0], X_pca[mask_malignant, 1],color='red', alpha=0.5, label='M')
+plt.xlabel("PC1")
+plt.ylabel("PC2")
+plt.legend()
+plt.tight_layout()
+plt.title("Projection des patients sur le plan des deux premiers axes PCA")
+plt.savefig("Projection des patients sur le plan des deux premiers axes PCA.png")
+plt.show()
+
 
 # Calcul du cercle des correlations
 PC = pca.components_.T*np.sqrt(pca.explained_variance_)
@@ -114,6 +137,7 @@ plt.xlim(-1,1)
 plt.ylim(-1,1)
 plt.grid(True)
 plt.gca().add_artist(plt.Circle((0,0),1,color='blue',fill=False))
+plt.savefig('Correlation Circle Plot axe 1&2.png')
 plt.show()
 
 # Cercle des correlations entre le deuxieme et troisieme axe
@@ -134,6 +158,7 @@ plt.xlim(-1,1)
 plt.ylim(-1,1)
 plt.grid(True)
 plt.gca().add_artist(plt.Circle((0,0),1,color='blue',fill=False))
+plt.savefig('Correlation Circle Plot axe 2&3.png')
 plt.show()
 
 #LDA et QDA
@@ -145,7 +170,7 @@ lda.fit(data_sans_id.drop('Diagnostique', axis = 1), data_sans_id.Diagnostique)
 y = data_sans_id["Diagnostique"]
 X = data_sans_id.drop("Diagnostique",axis=1)
 X_sd = StandardScaler().fit_transform(X)
-X_train, X_test, y_train, y_test = train_test_split(X_sd, y, test_size=0.3, random_state=42, stratify=y) #stratify par y pour garder environ 37% de positifs (https://stackoverflow.com/questions/34842405/parameter-stratify-from-method-train-test-split-scikit-learn)
+X_train, X_test, y_train, y_test = train_test_split(X_sd, y, test_size=0.3, random_state=42, stratify=y,shuffle=True) #stratify par y pour garder environ 37% de positifs (https://stackoverflow.com/questions/34842405/parameter-stratify-from-method-train-test-split-scikit-learn)
 
 # Fonction pour évaluer les modèles, framework robuste selon le modele utilisé
 def evaluation_modele(model, X_train, X_test, y_train, y_test):
@@ -155,7 +180,7 @@ def evaluation_modele(model, X_train, X_test, y_train, y_test):
     test_score = accuracy_score(y_test, y_test_pred)
 
     conf_matrix = confusion_matrix(y_test, y_test_pred) # Matrice de confusion
-    
+    print(model)
     print(conf_matrix)
     
     print(classification_report(y_test, y_test_pred, target_names=['Benign', 'Malignant']))
@@ -226,6 +251,7 @@ plt.title("Courbes ROC")
 plt.xlabel("Taux de Faux Positifs")
 plt.ylabel("Taux de Vrais Positifs")
 plt.legend()
+plt.savefig('Courbes ROC.png')
 plt.show()
 
 # AUC 
@@ -234,3 +260,132 @@ for name, res in results.items():
     model = res['model']
     y_pred = model.predict_proba(X_test)[:, 1]
     print(name +"    "+ str(roc_auc_score(y_test, y_pred)))
+
+
+# Modèle Logistique avec PCA
+X_features = data_sans_id.drop("Diagnostique", axis=1)
+y = data_sans_id["Diagnostique"]
+
+X_sd = StandardScaler().fit_transform(X_features)
+pca = PCA()
+pca.fit(X_sd)
+
+# Graphique des coefficients PCA 
+PC = pca.components_.T * np.sqrt(pca.explained_variance_)
+PC_df = pd.DataFrame(PC[:, :2], index=X_features.columns, columns=['PC1', 'PC2']) #Création du DF avec les coeffs
+
+PC1_sorted = PC_df['PC1'].sort_values(ascending=False) #Ordre décroissant pour PC1
+PC2_sorted = PC_df['PC2'].sort_values(ascending=False) #Ordre décroissant pour PC2
+
+plt.figure(figsize=(10,5))
+sns.barplot(x=PC1_sorted.index, y=PC1_sorted.values, color='red') #Barplot pour les coeffs
+plt.xticks(rotation=60)
+plt.title("Contributions des variables à l'axe 1")
+plt.ylabel("Coeff PC1")
+plt.tight_layout()  #Sinon les noms des variables tiennent pas dans le cadre
+plt.savefig("Contributions des variables à l'axe 1.png")
+plt.show()
+
+plt.figure(figsize=(10,5))
+sns.barplot(x=PC2_sorted.index, y=PC2_sorted.values, color='blue')
+plt.xticks(rotation=60)
+plt.title("Contributions des variables à l'axe 2")
+plt.ylabel("Coeff PC2")
+plt.tight_layout() #Sinon les noms des variables tiennent pas dans le cadre
+plt.savefig("Contributions des variables à l'axe 2.png")
+plt.show()
+
+# Test de la Régression Logistique sur un nombre n variable d'axes de la PCA
+
+X_pca = pca.transform(X_sd)
+X_train, X_test, y_train, y_test = train_test_split(X_pca, y, test_size=0.3, random_state=42, stratify=y)
+
+
+nb_components = X_pca.shape[1] #Nombre
+range_compon = range(1, nb_components + 1)
+
+auc_list=[]
+aic_list=[]
+bic_list=[]
+
+n = X_test.shape[0] #Nombre d'observations pour bic
+
+from sklearn.metrics import log_loss
+for n_components in range_compon:
+    X_train_pca = X_train[:, :n_components] #Garder les n premieres composantes
+    X_test_pca = X_test[:, :n_components] #Idem
+
+    logit = LogisticRegression(max_iter=2000, random_state=42)
+    logit.fit(X_train_pca, y_train)
+    
+    y_pred_proba = logit.predict_proba(X_test_pca)[:,1] #Proba de classe 1
+    auc_score = roc_auc_score(y_test, y_pred_proba)
+    
+    L = -log_loss(y_test, y_pred_proba, normalize=False)
+    k = n_components+1
+    aic = 2*k - 2*L #Formule du cours
+    bic = np.log(n)*k-2*L #Formule du cours
+
+    auc_list.append(auc_score)
+    aic_list.append(aic)
+    bic_list.append(bic)
+
+plt.figure(figsize=(10,6))
+plt.plot(range_compon, auc_list, label='AUC', color='blue')
+plt.title("AUC en fonction du nombre d'axes PCA")
+plt.xlabel("Nombre d'axes")
+plt.ylabel("AUC")
+plt.legend()
+plt.savefig("AUC en fonction du nombre d'axes PCA.png")
+plt.show()
+
+plt.figure(figsize=(10,6))
+plt.plot(range_compon, aic_list, label='AIC', color='red')
+plt.plot(range_compon, bic_list, label='BIC', color='green')
+plt.title("AIC et BIC selon le nombre d'axes PCA")
+plt.xlabel("Nombre d'axes")
+plt.ylabel("Valeur du critère")
+plt.legend()
+plt.savefig("AIC et BIC selon le nombre d'axes PCA.png")
+plt.show()
+
+# Évaluation du modèle Logistique sur 5 axes PCA. Ce n'est pas le meilleur pour le random_state=42 mais après avoir d'autres random_states, la valeur n=5 revient plus souvent pour le min de l'AIC et BIC.
+
+X_train_pca4 = X_train[:, :5] # Sélection des 5 premières composantes
+X_test_pca4 = X_test[:, :5] #idem
+
+logit_pca4 = LogisticRegression(max_iter=2000, random_state=42)
+logit_pca4.fit(X_train_pca4, y_train)
+
+res_logit_pca4 = evaluation_modele(logit_pca4, X_train_pca4, X_test_pca4, y_train, y_test)
+
+# AUC & courbe ROC
+y_pred_proba_pca4 = logit_pca4.predict_proba(X_test_pca4)[:, 1]
+auc_pca4 = roc_auc_score(y_test, y_pred_proba_pca4)
+print("AUC pour n=5 axes : "+ str(np.round(auc_pca4,3)))
+
+# Tracé de la courbe ROC
+fpr, tpr, thresholds = roc_curve(y_test, y_pred_proba_pca4)
+plt.figure(figsize=(7, 6))
+plt.plot(fpr, tpr, color='orange', lw=2,label='Logistique (5 composantes) (AUC = '+str(np.round(auc_pca4,3))+')')
+plt.plot([0, 1], [0, 1], color='grey', linestyle='--')
+plt.title("Courbe ROC de la Régression Logistique sur 5 axes de la PCA")
+plt.xlabel("Taux de Faux Positifs")
+plt.ylabel("Taux de Vrais Positifs")
+plt.legend()
+plt.savefig("Courbe ROC de la Régression Logistique sur 5 axes de la PCA.png")
+plt.show()
+
+# Nuage de mots pour illustrer les éléments les plus importants du PC1 sachant qu'ils sont tous de coeff positifs.
+
+from wordcloud import WordCloud
+freq_PC1 = PC_df['PC1'].abs().to_dict()
+wc_PC1 = WordCloud(width=800, height=400, background_color='white',colormap='copper').generate_from_frequencies(freq_PC1)
+
+plt.figure(figsize=(8, 16))
+plt.imshow(wc_PC1, interpolation='bilinear') #(https://www.geeksforgeeks.org/python/generating-word-cloud-python/)
+plt.title('Nuage de mots PC1')
+plt.axis('off') #Pas besoin d'axes
+plt.tight_layout()
+plt.savefig('Nuage de mots PC1.png')
+plt.show()
