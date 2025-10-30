@@ -9,6 +9,9 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticD
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
 from sklearn.metrics import roc_curve, auc, roc_auc_score
 
+#On choisit un random_state qu'on pourra changer facilement afin de voir si les résultats changent
+rand_st=45
+
 #Importer les données dans un format exploitable
 data = pd.read_csv("wdbc.data",header=None)
 #print(data.describe()) #On remarque qu'il n'y a pas les noms des colonnes, ajout de header=none
@@ -107,7 +110,6 @@ plt.xlabel("PC1")
 plt.ylabel("PC2")
 plt.legend()
 plt.tight_layout()
-plt.title("Projection des patients sur le plan des deux premiers axes PCA")
 plt.savefig("Projection des patients sur le plan des deux premiers axes PCA.png")
 plt.show()
 
@@ -161,16 +163,11 @@ plt.gca().add_artist(plt.Circle((0,0),1,color='blue',fill=False))
 plt.savefig('Correlation Circle Plot axe 2&3.png')
 plt.show()
 
-#LDA et QDA
-
-lda = LinearDiscriminantAnalysis()
-lda.fit(data_sans_id.drop('Diagnostique', axis = 1), data_sans_id.Diagnostique)
-
 #Analyse et comparaison des modèles
 y = data_sans_id["Diagnostique"]
 X = data_sans_id.drop("Diagnostique",axis=1)
 X_sd = StandardScaler().fit_transform(X)
-X_train, X_test, y_train, y_test = train_test_split(X_sd, y, test_size=0.3, random_state=42, stratify=y,shuffle=True) #stratify par y pour garder environ 37% de positifs (https://stackoverflow.com/questions/34842405/parameter-stratify-from-method-train-test-split-scikit-learn)
+X_train, X_test, y_train, y_test = train_test_split(X_sd, y, test_size=0.3, random_state=rand_st, stratify=y,shuffle=True) #stratify par y pour garder environ 37% de positifs (https://stackoverflow.com/questions/34842405/parameter-stratify-from-method-train-test-split-scikit-learn)
 
 # Fonction pour évaluer les modèles, framework robuste selon le modele utilisé
 def evaluation_modele(model, X_train, X_test, y_train, y_test):
@@ -206,7 +203,7 @@ results['QDA'] = evaluation_modele(qda,X_train, X_test, y_train, y_test)
 #Logistique
 from sklearn.linear_model import LogisticRegression
 
-logit = LogisticRegression(max_iter=2000, random_state=42)
+logit = LogisticRegression(max_iter=2000, random_state=rand_st, class_weight='balanced')
 logit.fit(X_train, y_train)
 results['Logistic Regression'] = evaluation_modele(
     logit, X_train, X_test, y_train, y_test
@@ -217,7 +214,7 @@ from sklearn.neighbors import KNeighborsClassifier
 
 param_grid_knn = {'n_neighbors': [3, 5, 7, 9, 11, 13, 15, 20, 25]}
 knn_base = KNeighborsClassifier()
-knn_grid = GridSearchCV(knn_base, param_grid_knn, cv=5, scoring='accuracy', n_jobs=-1, verbose=1)
+knn_grid = GridSearchCV(knn_base, param_grid_knn, cv=5, scoring='recall', n_jobs=-1, verbose=1)
 knn_grid.fit(X_train, y_train)
 print("Meilleur k: "+ str(knn_grid.best_params_['n_neighbors']))
 print("Score validation croisée: " + str(knn_grid.best_score_))
@@ -227,8 +224,8 @@ results['KNN'] = evaluation_modele(knn_grid.best_estimator_,X_train, X_test, y_t
 from sklearn.ensemble import RandomForestClassifier
 
 param_grid_rf = {'n_estimators': [50, 100, 200],'max_depth': [5, 10, 15, None],'min_samples_split': [2, 5, 10]}
-rf_base = RandomForestClassifier(random_state=42)
-rf_grid = GridSearchCV(rf_base, param_grid_rf, cv=5, scoring='accuracy',n_jobs=-1, verbose=1)
+rf_base = RandomForestClassifier(random_state=rand_st, class_weight='balanced')
+rf_grid = GridSearchCV(rf_base, param_grid_rf, cv=5, scoring='recall',n_jobs=-1, verbose=1)
 rf_grid.fit(X_train, y_train)
 print("Meilleur k: "+ str(rf_grid.best_params_))
 print("Score validation croisée: " + str(rf_grid.best_score_))
@@ -298,7 +295,7 @@ plt.show()
 # Test de la Régression Logistique sur un nombre n variable d'axes de la PCA
 
 X_pca = pca.transform(X_sd)
-X_train, X_test, y_train, y_test = train_test_split(X_pca, y, test_size=0.3, random_state=42, stratify=y)
+X_train, X_test, y_train, y_test = train_test_split(X_pca, y, test_size=0.3, random_state=rand_st, stratify=y)
 
 
 nb_components = X_pca.shape[1] #Nombre
@@ -315,7 +312,7 @@ for n_components in range_compon:
     X_train_pca = X_train[:, :n_components] #Garder les n premieres composantes
     X_test_pca = X_test[:, :n_components] #Idem
 
-    logit = LogisticRegression(max_iter=2000, random_state=42)
+    logit = LogisticRegression(max_iter=2000, random_state=rand_st,class_weight='balanced')
     logit.fit(X_train_pca, y_train)
     
     y_pred_proba = logit.predict_proba(X_test_pca)[:,1] #Proba de classe 1
@@ -351,16 +348,33 @@ plt.show()
 
 # Évaluation du modèle Logistique sur 5 axes PCA. Ce n'est pas le meilleur pour le random_state=42 mais après avoir d'autres random_states, la valeur n=5 revient plus souvent pour le min de l'AIC et BIC.
 
-X_train_pca4 = X_train[:, :5] # Sélection des 5 premières composantes
-X_test_pca4 = X_test[:, :5] #idem
+X_train_pca5 = X_train[:, :5] # Sélection des 5 premières composantes
+X_test_pca5 = X_test[:, :5] #idem
 
-logit_pca4 = LogisticRegression(max_iter=2000, random_state=42)
-logit_pca4.fit(X_train_pca4, y_train)
+logit_pca4 = LogisticRegression(max_iter=2000, random_state=rand_st,class_weight='balanced')
+logit_pca4.fit(X_train_pca5, y_train)
 
-res_logit_pca4 = evaluation_modele(logit_pca4, X_train_pca4, X_test_pca4, y_train, y_test)
+from sklearn.metrics import recall_score, precision_score
+
+# threshold qui fait en sorte d'avoir 0 faux négatifs.
+y_proba = logit_pca4.predict_proba(X_test_pca5)[:, 1]
+threshold = 0.3
+y_pred_thr = (y_proba >= threshold).astype(int)
+
+cm = confusion_matrix(y_test, y_pred_thr)
+recall = recall_score(y_test, y_pred_thr)
+precision = precision_score(y_test, y_pred_thr)
+specificity = recall_score(y_test, y_pred_thr, pos_label=0)
+
+
+print("Matrice de confusion avec t="+str(threshold)+": ", cm)
+
+
+res_logit_pca4 = evaluation_modele(logit_pca4, X_train_pca5, X_test_pca5, y_train, y_test)
+
 
 # AUC & courbe ROC
-y_pred_proba_pca4 = logit_pca4.predict_proba(X_test_pca4)[:, 1]
+y_pred_proba_pca4 = logit_pca4.predict_proba(X_test_pca5)[:, 1]
 auc_pca4 = roc_auc_score(y_test, y_pred_proba_pca4)
 print("AUC pour n=5 axes : "+ str(np.round(auc_pca4,3)))
 
