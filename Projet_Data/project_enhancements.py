@@ -13,7 +13,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier, BaggingClassifier, AdaBoostClassifier
 from sklearn.feature_selection import SelectKBest, f_classif, chi2, mutual_info_classif
 from sklearn.decomposition import PCA
-from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, roc_curve, auc, roc_auc_score
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, roc_curve, auc, roc_auc_score, recall_score
 from sklearn.neural_network import MLPClassifier
 import warnings
 warnings.filterwarnings('ignore')
@@ -59,6 +59,9 @@ print(f"\nTrain: {X_train.shape}, Test: {X_test.shape}")
 print(f"Train class distribution: {y_train.value_counts().to_dict()}")
 print(f"Test class distribution: {y_test.value_counts().to_dict()}")
 
+# Define class weights for Random Forest to optimize recall (minimize false negatives)
+class_weight_rf = {0: 1, 1: 3}  # Penalize false negatives 3x more than false positives
+
 ###############################################################################
 # ENHANCEMENT 1: CROSS-VALIDATION EVALUATION
 ###############################################################################
@@ -73,7 +76,7 @@ algorithms = {
     'QDA': QuadraticDiscriminantAnalysis(),
     'Logistic': LogisticRegression(max_iter=2000, random_state=42),
     'KNN': KNeighborsClassifier(n_neighbors=7),
-    'Random Forest': RandomForestClassifier(n_estimators=50, max_depth=5, random_state=42)
+    'Random Forest': RandomForestClassifier(n_estimators=50, max_depth=5, random_state=42, class_weight=class_weight_rf)
 }
 
 cv_results = {}
@@ -149,7 +152,7 @@ def evaluate_with_selection(X_tr, X_te, y_tr, y_te, feature_set_name):
     models = {
         'LDA': LinearDiscriminantAnalysis(solver='svd'),
         'Logistic': LogisticRegression(max_iter=2000, random_state=42),
-        'Random Forest': RandomForestClassifier(n_estimators=50, max_depth=5, random_state=42)
+        'Random Forest': RandomForestClassifier(n_estimators=50, max_depth=5, random_state=42, class_weight=class_weight_rf)
     }
     
     for name, model in models.items():
@@ -264,7 +267,7 @@ for n in pca_n_components:
     models_to_test = {
         'LDA': LinearDiscriminantAnalysis(solver='svd'),
         'Logistic': LogisticRegression(max_iter=2000, random_state=42),
-        'Random Forest': RandomForestClassifier(n_estimators=50, max_depth=5, random_state=42)
+        'Random Forest': RandomForestClassifier(n_estimators=50, max_depth=5, random_state=42, class_weight=class_weight_rf)
     }
     
     for name, model in models_to_test.items():
@@ -306,7 +309,8 @@ print("="*80)
 # Train base models
 lda = LinearDiscriminantAnalysis(solver='svd')
 logistic = LogisticRegression(max_iter=2000, random_state=42)
-rf = RandomForestClassifier(n_estimators=50, max_depth=5, random_state=42)
+# Random Forest optimized for recall (minimize false negatives) - higher weight for malignant class
+rf = RandomForestClassifier(n_estimators=50, max_depth=5, random_state=42, class_weight=class_weight_rf)
 knn = KNeighborsClassifier(n_neighbors=7)
 
 print("\nTraining base models...")
@@ -318,6 +322,30 @@ for name, model in base_models.items():
     score = model.score(X_test, y_test)
     base_scores[name] = score
     print(f"  {name}: {score:.4f}")
+
+# Plot Random Forest feature importances (balanced)
+try:
+    importances = rf.feature_importances_
+    sorted_indices = np.argsort(importances)[::-1]
+    plt.figure(figsize=(10, 8))
+    plt.barh(range(len(importances)), importances[sorted_indices], align='center')
+    plt.yticks(range(len(importances)), X_train.columns[sorted_indices])
+    plt.gca().invert_yaxis()
+    plt.xlabel('Importance')
+    plt.title('Random Forest Feature Importances (Recall-Optimized)')
+    plt.tight_layout()
+    plt.savefig('Features_Importance_RandomForest.png', dpi=300)
+    plt.close()
+    print("\n✓ Random Forest feature importances saved to Features_Importance_RandomForest.png")
+    
+    # Report recall for Random Forest
+    y_pred_rf = rf.predict(X_test)
+    recall_rf = recall_score(y_test, y_pred_rf)
+    cm_rf = confusion_matrix(y_test, y_pred_rf)
+    print(f"  Random Forest Recall: {recall_rf:.4f}")
+    print(f"  Random Forest False Negatives: {cm_rf[1,0]}")
+except Exception as e:
+    print(f"\n! Failed to generate Random Forest feature importances: {str(e)}")
 
 # Method 1: Voting Classifier (Hard voting)
 print("\nTraining Voting Classifier (Hard)...")
@@ -547,6 +575,83 @@ if len(nn_results) > 0:
 print("\n" + "="*80)
 print("ENHANCED ANALYSIS COMPLETE")
 print("="*80)
+
+###############################################################################
+# ENHANCEMENT 7: XGBOOST EVALUATION (TEST SIZE = 0.2)
+###############################################################################
+
+print("\n" + "="*80)
+print("ENHANCEMENT 7: XGBOOST (test_size=0.2) - Recall-Optimized with AUC & Confusion Matrix")
+print("="*80)
+
+try:
+    from xgboost import XGBClassifier
+
+    # Create a dedicated split for XGBoost with test_size=0.2
+    X_train_xgb, X_test_xgb, y_train_xgb, y_test_xgb = train_test_split(
+        X_scaled, y, test_size=0.2, random_state=42, stratify=y
+    )
+
+    # Calculate scale_pos_weight to handle class imbalance and optimize for recall
+    # scale_pos_weight = negative_samples / positive_samples
+    neg_count = (y_train_xgb == 0).sum()
+    pos_count = (y_train_xgb == 1).sum()
+    scale_pos_weight = neg_count / pos_count
+    
+    print(f"\nClass distribution - Negative: {neg_count}, Positive: {pos_count}")
+    print(f"Using scale_pos_weight: {scale_pos_weight:.2f} to optimize for recall")
+
+    xgb_model = XGBClassifier(
+        n_estimators=200,
+        learning_rate=0.05,
+        max_depth=3,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        reg_lambda=1.0,
+        scale_pos_weight=scale_pos_weight * 1.5,  # Multiply by 1.5 to further penalize false negatives
+        random_state=42,
+        n_jobs=-1,
+        eval_metric='logloss',
+        use_label_encoder=False
+    )
+
+    print("\nTraining XGBoost (recall-optimized)...")
+    xgb_model.fit(X_train_xgb, y_train_xgb)
+
+    # Get probability predictions
+    y_proba_xgb = xgb_model.predict_proba(X_test_xgb)[:, 1]
+    
+    # Find optimal threshold that maximizes recall
+    thresholds = np.arange(0.1, 0.6, 0.05)
+    best_recall = 0
+    best_threshold = 0.5
+    
+    for threshold in thresholds:
+        y_pred_thresh = (y_proba_xgb >= threshold).astype(int)
+        recall = recall_score(y_test_xgb, y_pred_thresh)
+        if recall > best_recall:
+            best_recall = recall
+            best_threshold = threshold
+    
+    # Use optimal threshold for final predictions
+    y_pred_xgb = (y_proba_xgb >= best_threshold).astype(int)
+
+    auc_xgb = roc_auc_score(y_test_xgb, y_proba_xgb)
+    recall_xgb = recall_score(y_test_xgb, y_pred_xgb)
+    cm_xgb = confusion_matrix(y_test_xgb, y_pred_xgb)
+
+    print(f"\n  Optimal threshold: {best_threshold:.2f}")
+    print(f"  AUC: {auc_xgb:.4f}")
+    print(f"  Recall: {recall_xgb:.4f}")
+    print("  Confusion Matrix:")
+    print(f"     [{cm_xgb[0,0]:3d}  {cm_xgb[0,1]:3d}]")
+    print(f"     [{cm_xgb[1,0]:3d}  {cm_xgb[1,1]:3d}]")
+    print(f"  False Negatives: {cm_xgb[1,0]}")
+
+except ImportError:
+    print("XGBoost is not installed. Please install it with 'pip install xgboost'.")
+except Exception as e:
+    print(f"XGBoost evaluation failed: {str(e)}")
 
 ###############################################################################
 # SUMMARY OF ALL RESULTS

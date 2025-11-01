@@ -10,7 +10,7 @@ from sklearn.metrics import confusion_matrix, classification_report, accuracy_sc
 from sklearn.metrics import roc_curve, auc, roc_auc_score
 
 #On choisit un random_state qu'on pourra changer facilement afin de voir si les résultats changent
-rand_st=45
+rand_st=42
 
 #Importer les données dans un format exploitable
 data = pd.read_csv("wdbc.data",header=None)
@@ -167,7 +167,7 @@ plt.show()
 y = data_sans_id["Diagnostique"]
 X = data_sans_id.drop("Diagnostique",axis=1)
 X_sd = StandardScaler().fit_transform(X)
-X_train, X_test, y_train, y_test = train_test_split(X_sd, y, test_size=0.3, random_state=rand_st, stratify=y,shuffle=True) #stratify par y pour garder environ 37% de positifs (https://stackoverflow.com/questions/34842405/parameter-stratify-from-method-train-test-split-scikit-learn)
+X_train, X_test, y_train, y_test = train_test_split(X_sd, y, test_size=0.2, random_state=rand_st, stratify=y,shuffle=True) #stratify par y pour garder environ 37% de positifs (https://stackoverflow.com/questions/34842405/parameter-stratify-from-method-train-test-split-scikit-learn)
 
 # Fonction pour évaluer les modèles, framework robuste selon le modele utilisé
 def evaluation_modele(model, X_train, X_test, y_train, y_test):
@@ -230,6 +230,9 @@ rf_grid.fit(X_train, y_train)
 print("Meilleur k: "+ str(rf_grid.best_params_))
 print("Score validation croisée: " + str(rf_grid.best_score_))
 results['Random Forest'] = evaluation_modele(rf_grid.best_estimator_, X_train, X_test, y_train, y_test)
+
+# Stockage des features_importance du Random Forest en dictionnaire pour le wordcloud final
+features_importance_rf = dict(zip(X.columns, rf_grid.best_estimator_.feature_importances_))
 
 #Comparaison : 
 
@@ -295,7 +298,7 @@ plt.show()
 # Test de la Régression Logistique sur un nombre n variable d'axes de la PCA
 
 X_pca = pca.transform(X_sd)
-X_train, X_test, y_train, y_test = train_test_split(X_pca, y, test_size=0.3, random_state=rand_st, stratify=y)
+X_train, X_test, y_train, y_test = train_test_split(X_pca, y, test_size=0.2, random_state=rand_st, stratify=y)
 
 
 nb_components = X_pca.shape[1] #Nombre
@@ -396,10 +399,21 @@ from wordcloud import WordCloud
 freq_PC1 = PC_df['PC1'].abs().to_dict()
 wc_PC1 = WordCloud(width=800, height=400, background_color='white',colormap='copper').generate_from_frequencies(freq_PC1)
 
-plt.figure(figsize=(8, 16))
+plt.figure(figsize=(16, 8))
 plt.imshow(wc_PC1, interpolation='bilinear') #(https://www.geeksforgeeks.org/python/generating-word-cloud-python/)
 plt.title('Nuage de mots PC1')
 plt.axis('off') #Pas besoin d'axes
 plt.tight_layout()
 plt.savefig('Nuage de mots PC1.png')
+plt.show()
+
+# Nuage de mots pour illustrer les features les plus importantes de RF
+
+wc_RF = WordCloud(width=800, height=400, background_color='white',colormap='copper').generate_from_frequencies(features_importance_rf)
+plt.figure(figsize=(16, 8))
+plt.imshow(wc_RF, interpolation='bilinear')
+plt.title('Nuage de mots RF')
+plt.axis('off') #Pas besoin d'axes
+plt.tight_layout()
+plt.savefig('Nuage de Mots RF.png')
 plt.show()
