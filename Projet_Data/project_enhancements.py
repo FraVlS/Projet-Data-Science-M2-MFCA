@@ -46,6 +46,7 @@ y = df['Diagnosis'].map({'B': 0, 'M': 1})
 print(f"Dataset shape: {X.shape}")
 print(f"Class distribution: {y.value_counts().to_dict()}")
 
+
 # Standardize features
 scaler = StandardScaler()
 X_scaled = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)

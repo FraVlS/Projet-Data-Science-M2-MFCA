@@ -7,7 +7,7 @@ from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
-from sklearn.metrics import roc_curve, auc, roc_auc_score
+from sklearn.metrics import roc_curve, auc, roc_auc_score, make_scorer, recall_score, precision_score
 
 #On choisit un random_state qu'on pourra changer facilement afin de voir si les résultats changent
 rand_st=42
@@ -45,6 +45,7 @@ def diag_to_bin(letter):
 diag_bin = data["Diagnostique"].apply(diag_to_bin) #apply pour toutes les valeurs (https://saturncloud.io/blog/pandas-how-to-change-all-the-values-of-a-column/)
 data["Diagnostique"]= diag_bin
 
+print("Description de la Base de donnéees : ")
 print(data.describe())
 #On remarque qu'environ 37% des valeurs sont des 1 ("M"), ce qui est raisonnable et ne nécessite sans doute pas d'oversampling.
 
@@ -170,9 +171,42 @@ X_sd = StandardScaler().fit_transform(X)
 X_train, X_test, y_train, y_test = train_test_split(X_sd, y, test_size=0.2, random_state=rand_st, stratify=y,shuffle=True) #stratify par y pour garder environ 37% de positifs (https://stackoverflow.com/questions/34842405/parameter-stratify-from-method-train-test-split-scikit-learn)
 
 # Fonction pour évaluer les modèles, framework robuste selon le modele utilisé
-def evaluation_modele(model, X_train, X_test, y_train, y_test):
-    y_train_pred = model.predict(X_train)
-    y_test_pred = model.predict(X_test)
+
+def evaluation_modele(model, X_train, X_test, y_train, y_test, override="no", w=0.5):
+    if hasattr(model, 'predict_proba'): # Vérifier si le modèle supporte predict_proba
+        y_test_proba = model.predict_proba(X_test)[:, 1] # Probabilités pour le test set
+        fpr, tpr, thresholds = roc_curve(y_test, y_test_proba, drop_intermediate=False)
+        roc_auc = roc_auc_score(y_test, y_test_proba)
+        
+        # Calculer l'index de Youden
+        if override.lower() == "yes":
+            youden_index = w*tpr - (1-w)*fpr
+            youden_type = "pondéré"
+        else:
+            youden_index = tpr - fpr
+            youden_type = "standard"
+        
+        # Trouver le seuil optimal
+        optimal_idx = np.argmax(youden_index)
+        optimal_threshold = thresholds[optimal_idx]
+        
+        # Prédictions avec le seuil optimal
+        y_test_pred = (y_test_proba >= optimal_threshold).astype(int)
+        
+        # Utiliser le même seuil optimal (calculé sur test)
+        y_train_proba = model.predict_proba(X_train)[:, 1]
+        y_train_pred = (y_train_proba >= optimal_threshold).astype(int)
+        
+        # Calculer le recall (TPR) avec le seuil optimal
+        recall_optimal = recall_score(y_test, y_test_pred)
+        
+        print("Seuil optimal de Youden (" + youden_type + "): " + str(np.round(optimal_threshold, 4)))
+        print("Recall obtenu avec ce seuil: " + str(np.round(recall_optimal, 4)))
+    else:
+        # Si le modèle ne supporte pas predict_proba, utiliser predict normal
+        y_train_pred = model.predict(X_train)
+        y_test_pred = model.predict(X_test)
+    
     train_score = accuracy_score(y_train, y_train_pred)
     test_score = accuracy_score(y_test, y_test_pred)
 
@@ -261,6 +295,21 @@ for name, res in results.items():
     y_pred = model.predict_proba(X_test)[:, 1]
     print(name +"    "+ str(roc_auc_score(y_test, y_pred)))
 
+# Validation croisée des modèles
+print("VALIDATION CROISÉE (5 folds):")
+for name, res in results.items():
+    model = res['model']
+    # Réutiliser les modèles déjà entraînés avec leurs paramètres
+    if name == 'KNN':
+        cv_model = KNeighborsClassifier(**knn_grid.best_params_)
+    elif name == 'Random Forest':
+        cv_model = RandomForestClassifier(random_state=rand_st, class_weight='balanced', **rf_grid.best_params_)
+    else:
+        cv_model = model
+    
+    acc_scores = cross_val_score(cv_model, X_sd, y, cv=5, scoring='accuracy', n_jobs=-1)
+    roc_scores = cross_val_score(cv_model, X_sd, y, cv=5, scoring=make_scorer(roc_auc_score, needs_proba=True), n_jobs=-1)
+    print(name + ": Accuracy=" + str(round(acc_scores.mean(), 4)) + "+-" + str(round(acc_scores.std(), 4)) + ", ROC-AUC=" + str(round(roc_scores.mean(), 4)) + "+-" + str(round(roc_scores.std(), 4)))
 
 # Modèle Logistique avec PCA
 X_features = data_sans_id.drop("Diagnostique", axis=1)
@@ -357,12 +406,17 @@ X_test_pca5 = X_test[:, :5] #idem
 logit_pca4 = LogisticRegression(max_iter=2000, random_state=rand_st,class_weight='balanced')
 logit_pca4.fit(X_train_pca5, y_train)
 
-from sklearn.metrics import recall_score, precision_score
-
-# threshold qui fait en sorte d'avoir 0 faux négatifs.
+# Utilisation du seuil optimal de Youden
 y_proba = logit_pca4.predict_proba(X_test_pca5)[:, 1]
-threshold = 0.3
-y_pred_thr = (y_proba >= threshold).astype(int)
+fpr, tpr, thresholds = roc_curve(y_test, y_proba, drop_intermediate=False)
+roc_auc = roc_auc_score(y_test, y_proba)
+
+# Calculer l'index de Youden (par défaut, sans override)
+youden_index = tpr - fpr
+optimal_idx = np.argmax(youden_index)
+optimal_threshold = thresholds[optimal_idx]
+
+y_pred_thr = (y_proba >= optimal_threshold).astype(int)
 
 cm = confusion_matrix(y_test, y_pred_thr)
 recall = recall_score(y_test, y_pred_thr)
@@ -370,7 +424,7 @@ precision = precision_score(y_test, y_pred_thr)
 specificity = recall_score(y_test, y_pred_thr, pos_label=0)
 
 
-print("Matrice de confusion avec t="+str(threshold)+": ", cm)
+print("Matrice de confusion avec seuil optimal de Youden (t="+str(np.round(optimal_threshold, 4))+"): ", cm)
 
 
 res_logit_pca4 = evaluation_modele(logit_pca4, X_train_pca5, X_test_pca5, y_train, y_test)
@@ -392,6 +446,17 @@ plt.ylabel("Taux de Vrais Positifs")
 plt.legend()
 plt.savefig("Courbe ROC de la Régression Logistique sur 5 axes de la PCA.png")
 plt.show()
+
+# Validation croisée pour le modèle logistique avec PCA
+from sklearn.pipeline import Pipeline
+pipeline_pca_logit = Pipeline([
+    ('scaler', StandardScaler()),
+    ('pca', PCA(n_components=5)),
+    ('logit', LogisticRegression(max_iter=2000, random_state=rand_st, class_weight='balanced'))
+])
+acc_cv = cross_val_score(pipeline_pca_logit, X_features, y, cv=5, scoring='accuracy', n_jobs=-1)
+roc_cv = cross_val_score(pipeline_pca_logit, X_features, y, cv=5, scoring=make_scorer(roc_auc_score, needs_proba=True), n_jobs=-1)
+print("Logistique PCA (5 comp): Accuracy=" + str(round(acc_cv.mean(), 4)) + "+-" + str(round(acc_cv.std(), 4)) + ", ROC-AUC=" + str(round(roc_cv.mean(), 4)) + "+-" + str(round(roc_cv.std(), 4)))
 
 # Nuage de mots pour illustrer les éléments les plus importants du PC1 sachant qu'ils sont tous de coeff positifs.
 
