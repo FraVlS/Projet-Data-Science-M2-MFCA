@@ -172,7 +172,7 @@ X_train, X_test, y_train, y_test = train_test_split(X_sd, y, test_size=0.2, rand
 
 # Fonction pour évaluer les modèles, framework robuste selon le modele utilisé
 
-def evaluation_modele(model, X_train, X_test, y_train, y_test, override="no", w=0.5):
+def evaluation_modele(model, X_train, X_test, y_train, y_test, override="yes", w=0.8):
     if hasattr(model, 'predict_proba'): # Vérifier si le modèle supporte predict_proba
         y_test_proba = model.predict_proba(X_test)[:, 1] # Probabilités pour le test set
         fpr, tpr, thresholds = roc_curve(y_test, y_test_proba, drop_intermediate=False)
@@ -254,10 +254,17 @@ print("Meilleur k: "+ str(knn_grid.best_params_['n_neighbors']))
 print("Score validation croisée: " + str(knn_grid.best_score_))
 results['KNN'] = evaluation_modele(knn_grid.best_estimator_,X_train, X_test, y_train, y_test)
 
-#RFC
+#RFC Avec les bons paramètres déjà implémentés sinon le code tourne 30 minutes
 from sklearn.ensemble import RandomForestClassifier
 
-param_grid_rf = {'n_estimators': [50, 100, 200],'max_depth': [5, 10, 15, None],'min_samples_split': [2, 5, 10]}
+param_grid_rf = {
+    'n_estimators': [100],
+    'criterion': ['gini'],
+    'max_depth': [None],
+    'min_samples_split': [2],
+    'min_samples_leaf': [2],
+    'max_features': ['log2']
+}
 rf_base = RandomForestClassifier(random_state=rand_st, class_weight='balanced')
 rf_grid = GridSearchCV(rf_base, param_grid_rf, cv=5, scoring='recall',n_jobs=-1, verbose=1)
 rf_grid.fit(X_train, y_train)
